@@ -1,0 +1,74 @@
+seed: 7
+
+data:
+  image_size: [64, 64]
+  strict_labels: true
+  train:
+    input_dir: smoke_data/train/images
+    label_dir: smoke_data/train/labels
+    horizontal_flip: 0.5
+  val:
+    input_dir: smoke_data/val/images
+    label_dir: smoke_data/val/labels
+    horizontal_flip: 0.0
+  test:
+    input_dir: smoke_data/test/images
+    label_dir: smoke_data/test/labels
+    horizontal_flip: 0.0
+
+dataloader:
+  type: weighted
+  train_batch_size: 2
+  eval_batch_size: 2
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  positive_sample_weight: 2.0
+
+model:
+  type: tiny_segmenter
+  channels: 16
+
+loss:
+  type: masked_bce_dice
+  bce_weight: 1.0
+  dice_weight: 1.0
+  positive_weight: 2.0
+  smooth: 1.0
+
+optimizer:
+  type: adamw
+  learning_rate: 0.001
+  backbone_lr_multiplier: 1.0
+  weight_decay: 0.0
+
+scheduler:
+  type: cosine
+  warmup_steps: 0
+
+accelerator:
+  mixed_precision: "no"
+  gradient_accumulation_steps: 1
+  cpu: true
+  log_with: null
+
+train:
+  output_dir: smoke_outputs
+  max_steps: 4
+  num_epochs: 3
+  val_every_steps: 2
+  save_every_steps: 2
+  log_every_steps: 1
+  max_grad_norm: 1.0
+  metric_for_best: dice
+  greater_is_better: true
+  resume_from: null
+
+evaluation:
+  threshold: 0.5
+
+test:
+  checkpoint: smoke_outputs/best/model.pt
+  save_heatmaps: true
+  output_dir: smoke_outputs/test_heatmaps
+  metrics_file: smoke_outputs/test_metrics.json

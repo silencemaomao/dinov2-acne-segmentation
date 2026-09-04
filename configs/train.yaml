@@ -1,0 +1,82 @@
+seed: 42
+
+data:
+  image_size: [448, 448]
+  strict_labels: true
+  train:
+    input_dir: D:/dataset/acne/train/images
+    label_dir: D:/dataset/acne/train/labels
+    horizontal_flip: 0.5
+  val:
+    input_dir: D:/dataset/acne/val/images
+    label_dir: D:/dataset/acne/val/labels
+    horizontal_flip: 0.0
+  test:
+    input_dir: D:/dataset/acne/test/images
+    label_dir: D:/dataset/acne/test/labels
+    horizontal_flip: 0.0
+
+dataloader:
+  type: standard              # standard | weighted
+  train_batch_size: 4
+  eval_batch_size: 4
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  positive_sample_weight: 3.0 # 仅 type=weighted 时生效
+
+model:
+  type: dinov2_segmenter
+  pretrained_name: facebook/dinov2-small
+  hidden_indices: [-1, -3, -5, -7]
+  decoder_channels: 256
+  dropout: 0.1
+  freeze_backbone: false
+  gradient_checkpointing: true
+  local_files_only: false
+
+loss:
+  type: masked_bce_dice       # masked_bce_dice | masked_focal_dice
+  bce_weight: 1.0
+  dice_weight: 1.0
+  positive_weight: 4.0
+  smooth: 1.0
+  focal_alpha: 0.75
+  focal_gamma: 2.0
+
+optimizer:
+  type: adamw
+  learning_rate: 0.0001
+  backbone_lr_multiplier: 0.1
+  weight_decay: 0.01
+
+scheduler:
+  type: cosine                # cosine | constant
+  warmup_steps: 500
+
+accelerator:
+  mixed_precision: fp16       # no | fp16 | bf16
+  gradient_accumulation_steps: 2
+  cpu: false
+  log_with: null              # null | tensorboard | wandb
+
+train:
+  output_dir: outputs/dinov2_acne
+  max_steps: 20000
+  num_epochs: 100
+  val_every_steps: 500
+  save_every_steps: 1000
+  log_every_steps: 20
+  max_grad_norm: 1.0
+  metric_for_best: dice
+  greater_is_better: true
+  resume_from: null
+
+evaluation:
+  threshold: 0.5
+
+test:
+  checkpoint: outputs/dinov2_acne/best/model.pt
+  save_heatmaps: true
+  output_dir: outputs/dinov2_acne/test_heatmaps
+  metrics_file: outputs/dinov2_acne/test_metrics.json
