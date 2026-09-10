@@ -3,6 +3,7 @@ seed: 42
 data:
   image_size: [448, 448]
   strict_labels: true
+  classes: [acne, pigmentation, scar]
   train:
     input_dir: D:/dataset/acne/train/images
     label_dir: D:/dataset/acne/train/labels
@@ -34,12 +35,14 @@ model:
   freeze_backbone: false
   gradient_checkpointing: true
   local_files_only: false
+  num_classes: null           # null 时自动等于 data.classes 数量
 
 loss:
   type: masked_bce_dice       # masked_bce_dice | masked_focal_dice
   bce_weight: 1.0
   dice_weight: 1.0
-  positive_weight: 4.0
+  # 可填单个数、按 classes 顺序的列表，或 {acne: 4.0, pigmentation: 2.0, scar: 3.0}
+  positive_weight: [4.0, 2.0, 3.0]
   smooth: 1.0
   focal_alpha: 0.75
   focal_gamma: 2.0
@@ -68,7 +71,7 @@ train:
   save_every_steps: 1000
   log_every_steps: 20
   max_grad_norm: 1.0
-  metric_for_best: dice
+  metric_for_best: macro_dice
   greater_is_better: true
   resume_from: null
 

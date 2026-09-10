@@ -28,6 +28,19 @@ def _validate_config(config: dict[str, Any]) -> None:
         raise ValueError("data.image_size must be [height, width].")
     if any(int(value) <= 0 for value in image_size):
         raise ValueError("data.image_size values must be positive.")
+    classes = config["data"].get("classes")
+    if not isinstance(classes, list) or not classes:
+        raise ValueError("data.classes must be a non-empty list.")
+    if any(not isinstance(name, str) or not name.strip() for name in classes):
+        raise ValueError("Every data.classes entry must be a non-empty string.")
+    if len(set(classes)) != len(classes):
+        raise ValueError("data.classes entries must be unique.")
+    invalid_path_chars = set('<>:"/\\|?*')
+    if any(name in {".", ".."} or invalid_path_chars.intersection(name) for name in classes):
+        raise ValueError(
+            "data.classes names may use Chinese/letters/numbers/_/-, but cannot contain path separators "
+            "or Windows-invalid filename characters."
+        )
 
     for split in ("train", "val", "test"):
         if split in config["data"]:

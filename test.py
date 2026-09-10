@@ -23,22 +23,30 @@ def parse_args() -> argparse.Namespace:
 
 
 @torch.inference_mode()
-def save_predictions(model, dataloader, accelerator, output_dir: Path) -> None:
+def save_predictions(
+    model, dataloader, accelerator, output_dir: Path, class_names: list[str]
+) -> None:
     model.eval()
     if accelerator.is_main_process:
         output_dir.mkdir(parents=True, exist_ok=True)
     accelerator.wait_for_everyone()
     for batch in dataloader:
-        probabilities = torch.sigmoid(model(batch["image"])).squeeze(1).float().cpu()
-        for index, probability in enumerate(probabilities):
+        probabilities = torch.sigmoid(model(batch["image"])).float().cpu()
+        for index, sample_probabilities in enumerate(probabilities):
             height, width = [int(value) for value in batch["original_size"][index].tolist()]
-            heatmap = torch.nn.functional.interpolate(
-                probability[None, None], size=(height, width), mode="bilinear", align_corners=False
-            ).squeeze()
-            array = np.uint8(torch.clamp(heatmap * 255.0, 0, 255).numpy())
-            destination = output_dir / f"{batch['name'][index]}.png"
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(array).save(destination)
+            heatmaps = torch.nn.functional.interpolate(
+                sample_probabilities[None],
+                size=(height, width),
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+            for class_index, class_name in enumerate(class_names):
+                array = np.uint8(
+                    torch.clamp(heatmaps[class_index] * 255.0, 0, 255).numpy()
+                )
+                destination = output_dir / class_name / f"{batch['name'][index]}.png"
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                Image.fromarray(array).save(destination)
 
 
 def main() -> None:
@@ -61,7 +69,10 @@ def main() -> None:
     criterion = build_loss(config).to(accelerator.device)
     model, test_loader = accelerator.prepare(model, test_loader)
     threshold = float(config.get("evaluation", {}).get("threshold", 0.5))
-    metrics = evaluate(model, test_loader, criterion, accelerator, threshold)
+    class_names = list(config["data"]["classes"])
+    metrics = evaluate(
+        model, test_loader, criterion, accelerator, threshold, class_names
+    )
     accelerator.print(json.dumps(metrics, indent=2))
 
     metrics_file = resolve_path(config, config["test"]["metrics_file"])
@@ -74,6 +85,7 @@ def main() -> None:
             test_loader,
             accelerator,
             resolve_path(config, config["test"]["output_dir"]),
+            class_names,
         )
 
 

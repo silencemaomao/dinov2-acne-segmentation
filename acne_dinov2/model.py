@@ -13,6 +13,7 @@ class DINOv2Segmenter(nn.Module):
         pretrained_name: str = "facebook/dinov2-small",
         hidden_indices: list[int] | None = None,
         decoder_channels: int = 256,
+        num_classes: int = 1,
         dropout: float = 0.1,
         freeze_backbone: bool = False,
         gradient_checkpointing: bool = False,
@@ -39,7 +40,7 @@ class DINOv2Segmenter(nn.Module):
             nn.Conv2d(decoder_channels, decoder_channels // 2, 3, padding=1, bias=False),
             nn.BatchNorm2d(decoder_channels // 2),
             nn.GELU(),
-            nn.Conv2d(decoder_channels // 2, 1, 1),
+            nn.Conv2d(decoder_channels // 2, num_classes, 1),
         )
         if freeze_backbone:
             self.backbone.requires_grad_(False)
@@ -82,14 +83,14 @@ class DINOv2Segmenter(nn.Module):
 class TinySegmenter(nn.Module):
     """Small offline model used only to smoke-test the complete pipeline."""
 
-    def __init__(self, channels: int = 16) -> None:
+    def __init__(self, channels: int = 16, num_classes: int = 1) -> None:
         super().__init__()
         self.network = nn.Sequential(
             nn.Conv2d(3, channels, 3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels, channels, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(channels, 1, 1),
+            nn.Conv2d(channels, num_classes, 1),
         )
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
@@ -99,6 +100,14 @@ class TinySegmenter(nn.Module):
 def build_model(config: dict[str, Any]) -> nn.Module:
     model_config = dict(config["model"])
     model_type = model_config.pop("type")
+    class_count = len(config["data"]["classes"])
+    configured_count = model_config.pop("num_classes", None)
+    if configured_count is not None and int(configured_count) != class_count:
+        raise ValueError(
+            f"model.num_classes={configured_count} does not match "
+            f"len(data.classes)={class_count}. Use null for automatic inference."
+        )
+    model_config["num_classes"] = class_count
     if model_type == "dinov2_segmenter":
         return DINOv2Segmenter(**model_config)
     if model_type == "tiny_segmenter":

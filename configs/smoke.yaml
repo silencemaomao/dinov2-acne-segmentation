@@ -3,6 +3,7 @@ seed: 7
 data:
   image_size: [64, 64]
   strict_labels: true
+  classes: [acne, pigmentation, scar]
   train:
     input_dir: smoke_data/train/images
     label_dir: smoke_data/train/labels
@@ -28,12 +29,13 @@ dataloader:
 model:
   type: tiny_segmenter
   channels: 16
+  num_classes: null
 
 loss:
   type: masked_bce_dice
   bce_weight: 1.0
   dice_weight: 1.0
-  positive_weight: 2.0
+  positive_weight: [2.0, 2.0, 2.0]
   smooth: 1.0
 
 optimizer:
@@ -53,14 +55,14 @@ accelerator:
   log_with: null
 
 train:
-  output_dir: smoke_outputs
+  output_dir: smoke_outputs_multiclass
   max_steps: 4
   num_epochs: 3
   val_every_steps: 2
   save_every_steps: 2
   log_every_steps: 1
   max_grad_norm: 1.0
-  metric_for_best: dice
+  metric_for_best: macro_dice
   greater_is_better: true
   resume_from: null
 
@@ -68,7 +70,7 @@ evaluation:
   threshold: 0.5
 
 test:
-  checkpoint: smoke_outputs/best/model.pt
+  checkpoint: smoke_outputs_multiclass/best/model.pt
   save_heatmaps: true
-  output_dir: smoke_outputs/test_heatmaps
-  metrics_file: smoke_outputs/test_metrics.json
+  output_dir: smoke_outputs_multiclass/test_heatmaps
+  metrics_file: smoke_outputs_multiclass/test_metrics.json

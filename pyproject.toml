@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acne-dinov2"
-version = "0.1.0"
-description = "DINOv2 acne heatmap segmentation with Hugging Face Accelerate"
+version = "0.2.0"
+description = "DINOv2 multi-class facial heatmap segmentation with Hugging Face Accelerate"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

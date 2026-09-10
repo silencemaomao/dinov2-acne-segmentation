@@ -44,25 +44,43 @@ class AcneHeatmapDataset(Dataset[dict[str, Any]]):
         self,
         input_dir: str | Path,
         label_dir: str | Path,
+        classes: list[str],
         image_size: tuple[int, int],
         horizontal_flip: float = 0.0,
         strict_labels: bool = True,
     ) -> None:
         self.input_dir = Path(input_dir)
         self.label_dir = Path(label_dir)
+        self.classes = [str(name) for name in classes]
+        if not self.classes or len(set(self.classes)) != len(self.classes):
+            raise ValueError("data.classes must contain unique, non-empty class names.")
         self.image_size = tuple(int(value) for value in image_size)
         self.horizontal_flip = float(horizontal_flip)
         self.strict_labels = bool(strict_labels)
 
         images = _index_files(self.input_dir, "input image")
-        labels = _index_files(self.label_dir, "label")
-        missing = sorted(set(images) - set(labels))
-        extra = sorted(set(labels) - set(images))
-        if missing:
-            raise FileNotFoundError(f"Missing labels for {len(missing)} images, e.g. {missing[:3]}")
-        if extra:
-            raise ValueError(f"Labels without matching images: {extra[:3]}")
-        self.samples = [(key, images[key], labels[key]) for key in sorted(images)]
+        labels_by_class: dict[str, dict[str, Path]] = {}
+        for class_name in self.classes:
+            class_labels = _index_files(
+                self.label_dir / class_name, f"label for class {class_name}"
+            )
+            missing = sorted(set(images) - set(class_labels))
+            extra = sorted(set(class_labels) - set(images))
+            if missing:
+                raise FileNotFoundError(
+                    f"Class {class_name!r} is missing masks for {len(missing)} images, e.g. {missing[:3]}"
+                )
+            if extra:
+                raise ValueError(f"Class {class_name!r} has masks without images: {extra[:3]}")
+            labels_by_class[class_name] = class_labels
+        self.samples = [
+            (
+                key,
+                images[key],
+                {class_name: labels_by_class[class_name][key] for class_name in self.classes},
+            )
+            for key in sorted(images)
+        ]
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -80,34 +98,46 @@ class AcneHeatmapDataset(Dataset[dict[str, Any]]):
         return label_image, raw
 
     def has_positive(self, index: int) -> bool:
-        _, _, label_path = self.samples[index]
-        _, raw = self._read_label(label_path)
-        return bool(np.any(raw == 255))
+        _, _, label_paths = self.samples[index]
+        return any(
+            np.any(self._read_label(label_paths[class_name])[1] == 255)
+            for class_name in self.classes
+        )
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        key, image_path, label_path = self.samples[index]
+        key, image_path, label_paths = self.samples[index]
         image = Image.open(image_path).convert("RGB")
         original_width, original_height = image.size
-        label_image, _ = self._read_label(label_path)
+        label_images = [
+            self._read_label(label_paths[class_name])[0] for class_name in self.classes
+        ]
 
         height, width = self.image_size
         image = image.resize((width, height), Image.Resampling.BICUBIC)
-        label_image = label_image.resize((width, height), Image.Resampling.NEAREST)
-        if self.horizontal_flip > 0 and random.random() < self.horizontal_flip:
+        label_images = [
+            label.resize((width, height), Image.Resampling.NEAREST) for label in label_images
+        ]
+        should_flip = self.horizontal_flip > 0 and random.random() < self.horizontal_flip
+        if should_flip:
             image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-            label_image = label_image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            label_images = [
+                label.transpose(Image.Transpose.FLIP_LEFT_RIGHT) for label in label_images
+            ]
 
         image_array = np.asarray(image, dtype=np.float32).copy() / 255.0
         image_tensor = torch.from_numpy(image_array).permute(2, 0, 1)
         image_tensor = (image_tensor - IMAGENET_MEAN) / IMAGENET_STD
 
-        label_array = np.asarray(label_image, dtype=np.uint8).copy()
-        target = torch.full((height, width), -1.0, dtype=torch.float32)
-        target[torch.from_numpy(label_array == 0)] = 0.0
-        target[torch.from_numpy(label_array == 255)] = 1.0
+        targets = []
+        for label_image in label_images:
+            label_array = np.asarray(label_image, dtype=np.uint8).copy()
+            target = torch.full((height, width), -1.0, dtype=torch.float32)
+            target[torch.from_numpy(label_array == 0)] = 0.0
+            target[torch.from_numpy(label_array == 255)] = 1.0
+            targets.append(target)
         return {
             "image": image_tensor,
-            "target": target,
+            "target": torch.stack(targets),
             "name": key,
             "original_size": torch.tensor([original_height, original_width], dtype=torch.int64),
         }
@@ -121,6 +151,7 @@ def build_dataset(config: dict[str, Any], split: str) -> AcneHeatmapDataset:
     return AcneHeatmapDataset(
         input_dir=resolve_path(config, split_config["input_dir"]),
         label_dir=resolve_path(config, split_config["label_dir"]),
+        classes=list(data_config["classes"]),
         image_size=tuple(data_config["image_size"]),
         horizontal_flip=split_config.get("horizontal_flip", 0.0) if split == "train" else 0.0,
         strict_labels=data_config.get("strict_labels", True),

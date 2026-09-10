@@ -1,10 +1,10 @@
-# DINOv2 人脸痘痘热力图分割
+# DINOv2 多类别人脸瑕疵热力图分割
 
-一个完整的 PyTorch + Hugging Face DINOv2 二值分割项目。输入为人像图片，标签为单通道热力图：
+一个完整的 PyTorch + Hugging Face DINOv2 多标签分割项目。输入为人像图片，每个类别对应一张独立热力图，因此同一像素可同时属于多个类别：
 
-- `255`：痘痘区域，参与训练，目标为 1；
-- `0`：非痘痘区域，参与训练，目标为 0；
-- `128`：不确定区域，Loss 与评估均忽略。
+- `255`：该类别的监督正区域，目标为 1；
+- `0`：该类别的监督负区域，目标为 0；
+- `128`：该类别的不监督区域，仅对当前类别忽略。
 
 数据路径、模型类型、Dataloader 类型、Loss、优化器、训练步数、验证间隔和 Accelerator 参数全部从 YAML 读取。命令行只需传入 YAML 文件。
 
@@ -32,7 +32,7 @@ detect_project/
 
 ## 数据格式
 
-图片和标签通过“相对于根目录的无扩展名路径”配对，所以标签可统一使用 PNG：
+类别由 YAML 的 `data.classes` 定义。图片和每个类别 mask 通过“相对于根目录的无扩展名路径”配对，mask 可统一使用 PNG：
 
 ```text
 dataset/train/
@@ -40,11 +40,18 @@ dataset/train/
 │   ├── person_001.jpg
 │   └── sub/person_002.jpeg
 └── labels/
-    ├── person_001.png
-    └── sub/person_002.png
+    ├── acne/
+    │   ├── person_001.png
+    │   └── sub/person_002.png
+    ├── pigmentation/
+    │   ├── person_001.png
+    │   └── sub/person_002.png
+    └── scar/
+        ├── person_001.png
+        └── sub/person_002.png
 ```
 
-标签必须是灰度图，尺寸可以与输入不同，读取后会使用最近邻插值。开启 `strict_labels: true` 时，出现 0、128、255 以外的像素将立即报错，避免 JPEG 标签或双线性缩放污染类别值。
+每张输入图在每个类别目录下都必须存在一张灰度 mask。尺寸可以与输入不同，读取后使用最近邻插值。开启 `strict_labels: true` 时，出现 0、128、255 以外的像素将立即报错，避免 JPEG 标签或双线性缩放污染类别值。
 
 ## 安装
 
@@ -65,6 +72,7 @@ pip install -e .
 
 ```yaml
 data:
+  classes: [acne, pigmentation, scar]
   train:
     input_dir: D:/your_dataset/train/images
     label_dir: D:/your_dataset/train/labels
@@ -82,6 +90,7 @@ dataloader:
   type: standard            # 或 weighted
 loss:
   type: masked_bce_dice     # 或 masked_focal_dice
+  positive_weight: [4.0, 2.0, 3.0]  # 顺序与 data.classes 相同
 ```
 
 ## 训练
@@ -124,7 +133,7 @@ test:
 python test.py --config configs/train.yaml
 ```
 
-测试结果会打印并写入 `test_metrics.json`。预测热力图取值为 0—255，保存目录结构与输入目录一致。
+测试结果包含每类指标以及 macro/micro 汇总，并写入 `test_metrics.json`。预测热力图取值为 0—255，保存为 `输出目录/<类别>/<相对文件名>.png`。
 
 ## 不下载权重的完整流水线自检
 
@@ -134,7 +143,7 @@ python train.py --config configs/smoke.yaml
 python test.py --config configs/smoke.yaml
 ```
 
-`smoke.yaml` 使用 `tiny_segmenter`，仅验证数据读取、128 ignore mask、Loss、反向传播、定期验证、checkpoint 和测试热力图能否完整运行；正式训练必须使用 `configs/train.yaml` 中的 `dinov2_segmenter`。
+`smoke.yaml` 使用 acne、pigmentation、scar 三类独立 mask 和 `tiny_segmenter`，仅验证多通道读取、逐类别 128 ignore、Loss、反向传播、定期验证、checkpoint 和分类别热力图；正式训练必须使用 `configs/train.yaml` 中的 `dinov2_segmenter`。
 
 ## 设计说明
 

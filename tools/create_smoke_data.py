@@ -7,24 +7,33 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 
-def create_sample(image_path: Path, label_path: Path, seed: int, positive: bool) -> None:
+CLASSES = ("acne", "pigmentation", "scar")
+
+
+def create_sample(image_path: Path, label_root: Path, seed: int, index: int) -> None:
     rng = np.random.default_rng(seed)
     image_array = np.full((64, 64, 3), [188, 142, 122], dtype=np.int16)
     image_array += rng.normal(0, 6, image_array.shape).astype(np.int16)
     image = Image.fromarray(np.uint8(np.clip(image_array, 0, 255)))
-    label = Image.new("L", (64, 64), 0)
     image_draw = ImageDraw.Draw(image)
-    label_draw = ImageDraw.Draw(label)
-    if positive:
-        x, y = int(rng.integers(14, 50)), int(rng.integers(14, 50))
-        radius = int(rng.integers(3, 7))
-        image_draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(205, 65, 65))
-        label_draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
-        label_draw.rectangle((0, 0, 5, 63), fill=128)
     image_path.parent.mkdir(parents=True, exist_ok=True)
-    label_path.parent.mkdir(parents=True, exist_ok=True)
+    for class_index, class_name in enumerate(CLASSES):
+        label = Image.new("L", (64, 64), 0)
+        label_draw = ImageDraw.Draw(label)
+        label_draw.rectangle((class_index * 3, 0, class_index * 3 + 2, 63), fill=128)
+        positive = index % (class_index + 2) == 0
+        if positive:
+            x, y = int(rng.integers(14, 50)), int(rng.integers(14, 50))
+            radius = int(rng.integers(3, 7))
+            color = [(205, 65, 65), (135, 95, 70), (190, 125, 115)][class_index]
+            image_draw.ellipse(
+                (x - radius, y - radius, x + radius, y + radius), fill=color
+            )
+            label_draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+        label_path = label_root / class_name / f"sample_{index:03d}.png"
+        label_path.parent.mkdir(parents=True, exist_ok=True)
+        label.save(label_path)
     image.save(image_path)
-    label.save(label_path)
 
 
 def main() -> None:
@@ -36,9 +45,9 @@ def main() -> None:
         for index in range(count):
             create_sample(
                 args.output_dir / split / "images" / f"sample_{index:03d}.jpg",
-                args.output_dir / split / "labels" / f"sample_{index:03d}.png",
+                args.output_dir / split / "labels",
                 seed=index + {"train": 0, "val": 100, "test": 200}[split],
-                positive=index % 2 == 0,
+                index=index,
             )
     print(f"Created smoke-test dataset under {args.output_dir.resolve()}")
 
